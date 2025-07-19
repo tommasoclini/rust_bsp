@@ -31,7 +31,8 @@ struct BSP<'a, E, R: Read> {
 }
 
 trait Holder<E> {
-    fn get_bsp(&mut self) -> BSP<E, impl Read>;
+    type Reader: Read;
+    fn get_bsp(&mut self) -> BSP<E, Self::Reader>;
 }
 
 trait Configurator<E, Ctxt> {
@@ -45,7 +46,9 @@ struct MyHolder<'a> {
 }
 
 impl<'a> Holder<ledc::channel::Error> for MyHolder<'a> {
-    fn get_bsp(&mut self) -> BSP<ledc::channel::Error, impl Read> {
+    type Reader = uart::UartRx<'a, Async>;
+
+    fn get_bsp(&mut self) -> BSP<ledc::channel::Error, Self::Reader> {
         BSP {
             ch: &mut self.ch,
             counter: self.counter,
