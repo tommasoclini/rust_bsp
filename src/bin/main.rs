@@ -8,6 +8,7 @@
 
 use core::sync::atomic::{AtomicU32, Ordering};
 
+use defmt::dbg;
 use embassy_executor::Spawner;
 use embassy_time::{Instant, Timer};
 use embedded_hal::pwm::SetDutyCycle;
@@ -23,14 +24,14 @@ use panic_rtt_target as _;
 // For more information see: <https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/app_image_format.html#application-description>
 esp_bootloader_esp_idf::esp_app_desc!();
 
-struct BSP<'a, E> {
+struct BSP<'a, E, R: Read> {
     ch: &'a mut dyn SetDutyCycle<Error = E>,
     counter: &'a AtomicU32,
-    // reader: &'a mut R,
+    reader: &'a mut R,
 }
 
 trait Holder<E> {
-    fn get_bsp(&mut self) -> BSP<E>;
+    fn get_bsp(&mut self) -> BSP<E, impl Read>;
 }
 
 trait Configurator<E, Ctxt> {
@@ -44,10 +45,11 @@ struct MyHolder<'a> {
 }
 
 impl<'a> Holder<ledc::channel::Error> for MyHolder<'a> {
-    fn get_bsp(&mut self) -> BSP<ledc::channel::Error> {
+    fn get_bsp(&mut self) -> BSP<ledc::channel::Error, impl Read> {
         BSP {
             ch: &mut self.ch,
             counter: self.counter,
+            reader: &mut self.reader,
         }
     }
 }
@@ -139,6 +141,9 @@ async fn run<'a, E: embedded_hal::pwm::Error, Ctxt, Cfg: Configurator<E, Ctxt>>(
 
         bsp.ch.set_duty_cycle_percent(50).unwrap();
         bsp.counter.fetch_add(1, Ordering::Relaxed);
+
+        let mut buf = [0; 32];
+        _ = dbg!(bsp.reader.read(&mut buf).await);
 
         Timer::after_secs(1).await;
     }
