@@ -34,7 +34,7 @@ trait Holder<E> {
 }
 
 trait Configurator<E, Ctxt> {
-    async fn create(ctxt: &mut Ctxt, cfg: Config) -> Result<impl Holder<E>, ()>;
+    async fn create<'a>(ctxt: &'a mut Ctxt, cfg: Config) -> Result<impl Holder<E> + 'a, ()>;
 }
 
 struct MyHolder<'a> {
@@ -43,7 +43,7 @@ struct MyHolder<'a> {
     counter: &'a AtomicU32,
 }
 
-impl Holder<ledc::channel::Error> for MyHolder<'_> {
+impl<'a> Holder<ledc::channel::Error> for MyHolder<'a> {
     fn get_bsp(&mut self) -> BSP<ledc::channel::Error> {
         BSP {
             ch: &mut self.ch,
@@ -67,9 +67,9 @@ struct Config {
     inverted: bool,
 }
 
-impl Configurator<ledc::channel::Error, MyCtxt<'_>> for MyConfigurator {
-    async fn create(
-        ctxt: &mut MyCtxt<'_>,
+impl<'a> Configurator<ledc::channel::Error, MyCtxt<'a>> for MyConfigurator {
+    async fn create<'b>(
+        ctxt: &'b mut MyCtxt<'a>,
         cfg: Config,
     ) -> Result<impl Holder<ledc::channel::Error>, ()> {
         let (mut pwm_pin, mut uart_rx) = (ctxt.pwm_pin.reborrow(), ctxt.uart_rx.reborrow());
@@ -102,7 +102,7 @@ async fn main(spawner: Spawner) {
 
     rtt_target::rtt_init_defmt!();
 
-    let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
+    let config = esp_hal::Config::default().with_cpu_clock(CpuClock::_80MHz);
     let peripherals = esp_hal::init(config);
 
     let timer0 = SystemTimer::new(peripherals.SYSTIMER);
@@ -118,9 +118,17 @@ async fn main(spawner: Spawner) {
         uart_rx: peripherals.GPIO11.into(),
     };
 
+    run::<_, _, MyConfigurator>(&mut ctxt).await;
+
+    // for inspiration have a look at the examples at https://github.com/esp-rs/esp-hal/tree/esp-hal-v1.0.0-beta.1/examples/src/bin
+}
+
+async fn run<'a, E: embedded_hal::pwm::Error, Ctxt, Cfg: Configurator<E, Ctxt>>(
+    ctxt: &'a mut Ctxt,
+) {
     loop {
-        let mut holder = MyConfigurator::create(
-            &mut ctxt,
+        let mut holder = Cfg::create(
+            ctxt,
             Config {
                 inverted: Instant::now().as_ticks() % 2 == 0,
             },
@@ -134,6 +142,4 @@ async fn main(spawner: Spawner) {
 
         Timer::after_secs(1).await;
     }
-
-    // for inspiration have a look at the examples at https://github.com/esp-rs/esp-hal/tree/esp-hal-v1.0.0-beta.1/examples/src/bin
 }
